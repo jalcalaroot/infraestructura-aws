@@ -7,7 +7,6 @@ on:
       - 'vpc/**'
   workflow_dispatch:
 
-# Es crucial tener esto aquí para que el OIDC funcione en flujos reutilizables
 permissions:
   id-token: write
   contents: read
