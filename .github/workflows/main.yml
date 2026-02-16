@@ -31,6 +31,7 @@ jobs:
     name: Deploy stack
     runs-on: ubuntu-latest
     needs: lint
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -47,10 +48,61 @@ jobs:
           aws cloudformation validate-template \
             --template-body file://./${{ env.TEMPLATE_FILE }}
 
-      - name: Deploy CloudFormation stack
+      - name: Set Change Set name
+        run: echo "CHANGE_SET_NAME=cs-${GITHUB_RUN_ID}" >> $GITHUB_ENV
+
+      - name: Detect stack and set Change Set type
         run: |
-          aws cloudformation deploy \
-            --template-file ./${{ env.TEMPLATE_FILE }} \
+          if aws cloudformation describe-stacks --stack-name "${{ env.STACK_NAME }}" >/dev/null 2>&1; then
+            echo "CHANGE_SET_TYPE=UPDATE" >> $GITHUB_ENV
+            echo "Stack exists -> UPDATE"
+          else
+            echo "CHANGE_SET_TYPE=CREATE" >> $GITHUB_ENV
+            echo "Stack does not exist -> CREATE"
+          fi
+
+      - name: Create Change Set (from params.json)
+        run: |
+          aws cloudformation create-change-set \
             --stack-name ${{ env.STACK_NAME }} \
-            --capabilities CAPABILITY_NAMED_IAM \
-            --no-fail-on-empty-changeset
+            --change-set-name ${{ env.CHANGE_SET_NAME }} \
+            --change-set-type ${{ env.CHANGE_SET_TYPE }} \
+            --template-body file://./${{ env.TEMPLATE_FILE }} \
+            --parameters file://./params.json \
+            --capabilities CAPABILITY_NAMED_IAM
+
+      - name: Wait for Change Set creation (handle no changes)
+        run: |
+          set +e
+          aws cloudformation wait change-set-create-complete \
+            --stack-name ${{ env.STACK_NAME }} \
+            --change-set-name ${{ env.CHANGE_SET_NAME }}
+          STATUS=$?
+          set -e
+
+          if [ $STATUS -ne 0 ]; then
+            STATUS_REASON=$(aws cloudformation describe-change-set \
+              --stack-name ${{ env.STACK_NAME }} \
+              --change-set-name ${{ env.CHANGE_SET_NAME }} \
+              --query StatusReason --output text)
+
+            if [[ "$STATUS_REASON" == *"didn't contain changes"* ]]; then
+              echo "No changes detected. Skipping execution."
+              exit 0
+            else
+              echo "Change set failed: $STATUS_REASON"
+              exit 1
+            fi
+          fi
+
+      - name: Describe Change Set (preview)
+        run: |
+          aws cloudformation describe-change-set \
+            --stack-name ${{ env.STACK_NAME }} \
+            --change-set-name ${{ env.CHANGE_SET_NAME }}
+
+      - name: Execute Change Set
+        run: |
+          aws cloudformation execute-change-set \
+            --stack-name ${{ env.STACK_NAME }} \
+            --change-set-name ${{ env.CHANGE_SET_NAME }}
