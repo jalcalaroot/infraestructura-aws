@@ -2,10 +2,13 @@ name: Deploy VPC
 
 on:
   push:
-    branches: ["main"]
+    branches: 
+      - "main"
+      - "dev"
+      - "stg"
     paths:
       - 'vpc/**'
-  workflow_dispatch:
+  workflow_dispatch: # Esto te permite ejecutarlo manualmente desde la web en cualquier rama
 
 permissions:
   id-token: write
@@ -15,6 +18,6 @@ jobs:
   vpc-deployment:
     uses: ./.github/workflows/main.yml
     with:
-      service_name: "vpc"
+      service_name: "vpc-multilayers-${{ github.ref_name }}"
       stack_name: "vpc"
       aws_region: "us-east-1"
