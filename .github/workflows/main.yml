@@ -1,108 +1,131 @@
-name: Deploy VPC (CloudFormation)
+deploy:
+  name: Deploy stack
+  runs-on: ubuntu-latest
+  needs: lint
 
-on:
-  push:
-    branches: ["main"]
-  workflow_dispatch:
+  steps:
+    - name: Checkout
+      uses: actions/checkout@v4
 
-permissions:
-  id-token: write   # required for OIDC
-  contents: read    # required for checkout
+    - name: Configure AWS credentials (OIDC)
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: arn:aws:iam::924612596837:role/github-actions-role
+        role-session-name: github-actions-cfn-deploy
+        aws-region: ${{ env.AWS_REGION }}
 
-env:
-  AWS_REGION: us-east-1
-  TEMPLATE_FILE: vpc-multilayers-cloudformation.yml
-  STACK_NAME: vpc-multilayers
+    - name: Select environment config
+      run: |
+        case "${GITHUB_REF_NAME}" in
+          main)
+            echo "STACK_NAME=vpc-multilayers-prod" >> $GITHUB_ENV
+            echo "PARAMS_FILE=params-prod.json" >> $GITHUB_ENV
+            ;;
+          staging)
+            echo "STACK_NAME=vpc-multilayers-stg" >> $GITHUB_ENV
+            echo "PARAMS_FILE=params-stg.json" >> $GITHUB_ENV
+            ;;
+          develop)
+            echo "STACK_NAME=vpc-multilayers-dev" >> $GITHUB_ENV
+            echo "PARAMS_FILE=params-dev.json" >> $GITHUB_ENV
+            ;;
+        esac
 
-jobs:
-  lint:
-    name: cfn-lint
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+    - name: Validate template
+      run: |
+        aws cloudformation validate-template \
+          --template-body file://./${{ env.TEMPLATE_FILE }}
 
-      - name: Run cfn-lint
-        uses: scottbrenner/cfn-lint-action@v2
-        with:
-          command: cfn-lint -t ./${{ env.TEMPLATE_FILE }}
+    - name: Inspect stack status
+      run: |
+        if aws cloudformation describe-stacks --stack-name "${{ env.STACK_NAME }}" >/dev/null 2>&1; then
 
-  deploy:
-    name: Deploy stack
-    runs-on: ubuntu-latest
-    needs: lint
+          STACK_STATUS=$(aws cloudformation describe-stacks \
+            --stack-name "${{ env.STACK_NAME }}" \
+            --query "Stacks[0].StackStatus" --output text)
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+          echo "Current Stack Status: $STACK_STATUS"
 
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::924612596837:role/github-actions-role
-          role-session-name: github-actions-cfn-deploy
-          aws-region: ${{ env.AWS_REGION }}
+          case "$STACK_STATUS" in
+            CREATE_COMPLETE|UPDATE_COMPLETE|UPDATE_ROLLBACK_COMPLETE)
+              echo "CHANGE_SET_TYPE=UPDATE" >> $GITHUB_ENV
+              ;;
 
-      - name: Validate CloudFormation template (AWS)
-        run: |
-          aws cloudformation validate-template \
-            --template-body file://./${{ env.TEMPLATE_FILE }}
+            ROLLBACK_COMPLETE)
+              echo "Stack in ROLLBACK_COMPLETE. Deleting before recreate..."
+              aws cloudformation delete-stack --stack-name "${{ env.STACK_NAME }}"
+              aws cloudformation wait stack-delete-complete --stack-name "${{ env.STACK_NAME }}"
+              echo "CHANGE_SET_TYPE=CREATE" >> $GITHUB_ENV
+              ;;
 
-      - name: Set Change Set name
-        run: echo "CHANGE_SET_NAME=cs-${GITHUB_RUN_ID}" >> $GITHUB_ENV
-
-      - name: Detect stack and set Change Set type
-        run: |
-          if aws cloudformation describe-stacks --stack-name "${{ env.STACK_NAME }}" >/dev/null 2>&1; then
-            echo "CHANGE_SET_TYPE=UPDATE" >> $GITHUB_ENV
-            echo "Stack exists -> UPDATE"
-          else
-            echo "CHANGE_SET_TYPE=CREATE" >> $GITHUB_ENV
-            echo "Stack does not exist -> CREATE"
-          fi
-
-      - name: Create Change Set (from params.json)
-        run: |
-          aws cloudformation create-change-set \
-            --stack-name ${{ env.STACK_NAME }} \
-            --change-set-name ${{ env.CHANGE_SET_NAME }} \
-            --change-set-type ${{ env.CHANGE_SET_TYPE }} \
-            --template-body file://./${{ env.TEMPLATE_FILE }} \
-            --parameters file://./params.json \
-            --capabilities CAPABILITY_NAMED_IAM
-
-      - name: Wait for Change Set creation (handle no changes)
-        run: |
-          set +e
-          aws cloudformation wait change-set-create-complete \
-            --stack-name ${{ env.STACK_NAME }} \
-            --change-set-name ${{ env.CHANGE_SET_NAME }}
-          STATUS=$?
-          set -e
-
-          if [ $STATUS -ne 0 ]; then
-            STATUS_REASON=$(aws cloudformation describe-change-set \
-              --stack-name ${{ env.STACK_NAME }} \
-              --change-set-name ${{ env.CHANGE_SET_NAME }} \
-              --query StatusReason --output text)
-
-            if [[ "$STATUS_REASON" == *"didn't contain changes"* ]]; then
-              echo "No changes detected. Skipping execution."
-              exit 0
-            else
-              echo "Change set failed: $STATUS_REASON"
+            DELETE_FAILED)
+              echo "Stack is in DELETE_FAILED. Manual intervention required."
               exit 1
-            fi
+              ;;
+
+            *)
+              echo "Stack in unsupported state: $STACK_STATUS"
+              exit 1
+              ;;
+          esac
+
+        else
+          echo "Stack does not exist → CREATE"
+          echo "CHANGE_SET_TYPE=CREATE" >> $GITHUB_ENV
+        fi
+
+    - name: Set Change Set name
+      run: echo "CHANGE_SET_NAME=cs-${GITHUB_RUN_ID}" >> $GITHUB_ENV
+
+    - name: Create Change Set
+      run: |
+        aws cloudformation create-change-set \
+          --stack-name ${{ env.STACK_NAME }} \
+          --change-set-name ${{ env.CHANGE_SET_NAME }} \
+          --change-set-type ${{ env.CHANGE_SET_TYPE }} \
+          --template-body file://./${{ env.TEMPLATE_FILE }} \
+          --parameters file://./${{ env.PARAMS_FILE }} \
+          --capabilities CAPABILITY_NAMED_IAM
+
+    - name: Wait and validate Change Set
+      run: |
+        set +e
+        aws cloudformation wait change-set-create-complete \
+          --stack-name ${{ env.STACK_NAME }} \
+          --change-set-name ${{ env.CHANGE_SET_NAME }}
+        set -e
+
+        STATUS=$(aws cloudformation describe-change-set \
+          --stack-name ${{ env.STACK_NAME }} \
+          --change-set-name ${{ env.CHANGE_SET_NAME }} \
+          --query Status --output text)
+
+        REASON=$(aws cloudformation describe-change-set \
+          --stack-name ${{ env.STACK_NAME }} \
+          --change-set-name ${{ env.CHANGE_SET_NAME }} \
+          --query StatusReason --output text)
+
+        echo "ChangeSet Status: $STATUS"
+        echo "Reason: $REASON"
+
+        if [[ "$STATUS" == "FAILED" ]]; then
+          if [[ "$REASON" == *"didn't contain changes"* ]] || \
+             [[ "$REASON" == *"No updates are to be performed"* ]]; then
+            echo "No changes detected. Skipping execution."
+            exit 0
+          else
+            echo "Change Set failed due to real error."
+            exit 1
           fi
+        fi
 
-      - name: Describe Change Set (preview)
-        run: |
-          aws cloudformation describe-change-set \
-            --stack-name ${{ env.STACK_NAME }} \
-            --change-set-name ${{ env.CHANGE_SET_NAME }}
+        if [[ "$STATUS" != "CREATE_COMPLETE" ]]; then
+          echo "Change Set not ready for execution."
+          exit 1
+        fi
 
-      - name: Execute Change Set
-        run: |
-          aws cloudformation execute-change-set \
-            --stack-name ${{ env.STACK_NAME }} \
-            --change-set-name ${{ env.CHANGE_SET_NAME }}
+    - name: Execute Change Set
+      run: |
+        aws cloudformation execute-change-set \
+          --stack-name ${{ env.STACK_NAME }} \
+          --change-set-name ${{ env.CHANGE_SET_NAME }}
