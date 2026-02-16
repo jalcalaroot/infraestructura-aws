@@ -5,10 +5,10 @@
   },
   {
     "ParameterKey": "ClassB",
-    "ParameterValue": "10"
+    "ParameterValue": "0"
   },
   {
     "ParameterKey": "CustomerId",
-    "ParameterValue": "production"
+    "ParameterValue": "dev"
   }
 ]
