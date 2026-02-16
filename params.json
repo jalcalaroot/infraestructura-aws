@@ -1,0 +1,14 @@
+[
+  {
+    "ParameterKey": "ClassA",
+    "ParameterValue": "10"
+  },
+  {
+    "ParameterKey": "ClassB",
+    "ParameterValue": "0"
+  },
+  {
+    "ParameterKey": "CustomerId",
+    "ParameterValue": "bank123"
+  }
+]

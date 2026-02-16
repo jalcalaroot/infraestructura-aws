@@ -2,16 +2,17 @@ name: Deploy VPC (CloudFormation)
 
 on:
   push:
-    branches: ["develop", "staging", "main"]
+    branches: ["main"]
   workflow_dispatch:
 
 permissions:
-  id-token: write
-  contents: read
+  id-token: write   # required for OIDC
+  contents: read    # required for checkout
 
 env:
   AWS_REGION: us-east-1
   TEMPLATE_FILE: vpc-multilayers-cloudformation.yml
+  STACK_NAME: vpc-multilayers
 
 jobs:
   lint:
@@ -42,34 +43,6 @@ jobs:
           role-session-name: github-actions-cfn-deploy
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Select environment config (stack + params)
-        run: |
-          case "${GITHUB_REF_NAME}" in
-            main)
-              echo "ENVIRONMENT=prod" >> $GITHUB_ENV
-              echo "STACK_NAME=vpc-multilayers-prod" >> $GITHUB_ENV
-              echo "PARAMS_FILE=params-prod.yaml" >> $GITHUB_ENV
-              ;;
-            staging)
-              echo "ENVIRONMENT=stg" >> $GITHUB_ENV
-              echo "STACK_NAME=vpc-multilayers-stg" >> $GITHUB_ENV
-              echo "PARAMS_FILE=params-stg.yaml" >> $GITHUB_ENV
-              ;;
-            develop)
-              echo "ENVIRONMENT=dev" >> $GITHUB_ENV
-              echo "STACK_NAME=vpc-multilayers-dev" >> $GITHUB_ENV
-              echo "PARAMS_FILE=params-dev.yaml" >> $GITHUB_ENV
-              ;;
-            *)
-              echo "Unsupported branch: ${GITHUB_REF_NAME}"
-              exit 1
-              ;;
-          esac
-
-          echo "Deploying to ${GITHUB_REF_NAME} -> ${ENVIRONMENT}"
-          echo "Stack: ${STACK_NAME}"
-          echo "Params: ${PARAMS_FILE}"
-
       - name: Validate CloudFormation template (AWS)
         run: |
           aws cloudformation validate-template \
@@ -88,14 +61,14 @@ jobs:
             echo "Stack does not exist -> CREATE"
           fi
 
-      - name: Create Change Set (from params YAML)
+      - name: Create Change Set (from params.json)
         run: |
           aws cloudformation create-change-set \
             --stack-name ${{ env.STACK_NAME }} \
             --change-set-name ${{ env.CHANGE_SET_NAME }} \
             --change-set-type ${{ env.CHANGE_SET_TYPE }} \
             --template-body file://./${{ env.TEMPLATE_FILE }} \
-            --parameters file://./${{ env.PARAMS_FILE }} \
+            --parameters file://./params.json \
             --capabilities CAPABILITY_NAMED_IAM
 
       - name: Wait for Change Set creation (handle no changes)
