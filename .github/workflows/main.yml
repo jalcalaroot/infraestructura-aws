@@ -32,12 +32,30 @@ jobs:
           role-session-name: github-actions-cfn-deploy
           aws-region: ${{ inputs.aws_region }}
 
-      # ... (Pasos de inspección de stack y validación) ...
+      - name: Inspect stack status
+        id: check_stack
+        run: |
+          if aws cloudformation describe-stacks --stack-name "${{ inputs.stack_name }}" >/dev/null 2>&1; then
+            STATUS=$(aws cloudformation describe-stacks --stack-name "${{ inputs.stack_name }}" --query "Stacks[0].StackStatus" --output text)
+            echo "Current Status: $STATUS"
+            if [ "$STATUS" == "ROLLBACK_COMPLETE" ]; then
+              echo "Stack in ROLLBACK. Deleting..."
+              aws cloudformation delete-stack --stack-name "${{ inputs.stack_name }}"
+              aws cloudformation wait stack-delete-complete --stack-name "${{ inputs.stack_name }}"
+              echo "type=CREATE" >> $GITHUB_OUTPUT
+            else
+              echo "type=UPDATE" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "Stack does not exist. Creating..."
+            echo "type=CREATE" >> $GITHUB_OUTPUT
+          fi
 
       - name: Create and Execute Change Set
         run: |
           CS_NAME="cs-${{ github.run_id }}"
-          # Usamos los nombres estandarizados dentro de la carpeta del servicio
+          
+          # Creamos el Change Set usando la ruta estandarizada
           aws cloudformation create-change-set \
             --stack-name ${{ inputs.stack_name }} \
             --change-set-name $CS_NAME \
@@ -45,5 +63,25 @@ jobs:
             --template-body file://${{ inputs.service_name }}/template.yaml \
             --parameters file://${{ inputs.service_name }}/parameters.json \
             --capabilities CAPABILITY_NAMED_IAM
+
+          # Esperamos a que el Change Set se cree para validarlo
+          aws cloudformation wait change-set-create-complete --stack-name ${{ inputs.stack_name }} --change-set-name $CS_NAME || true
           
-          # ... (Resto de la lógica de ejecución) ...
+          STATUS=$(aws cloudformation describe-change-set --stack-name ${{ inputs.stack_name }} --change-set-name $CS_NAME --query Status --output text)
+          REASON=$(aws cloudformation describe-change-set --stack-name ${{ inputs.stack_name }} --change-set-name $CS_NAME --query StatusReason --output text)
+
+          if [ "$STATUS" == "FAILED" ]; then
+             if [[ "$REASON" == *"didn't contain changes"* ]] || [[ "$REASON" == *"No updates"* ]]; then
+                echo "No changes detected. Finishing job."
+             else
+                echo "Error in Change Set: $REASON"
+                exit 1
+             fi
+          else
+             echo "Executing Change Set..."
+             aws cloudformation execute-change-set --stack-name ${{ inputs.stack_name }} --change-set-name $CS_NAME
+             
+             echo "Waiting for stack to finish..."
+             aws cloudformation wait stack-update-complete --stack-name ${{ inputs.stack_name }} || \
+             aws cloudformation wait stack-create-complete --stack-name ${{ inputs.stack_name }}
+          fi

@@ -7,12 +7,15 @@ on:
       - 'vpc/**'
   workflow_dispatch:
 
+# Es crucial tener esto aquí para que el OIDC funcione en flujos reutilizables
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
   vpc-deployment:
-    # Nota el cambio a main.yml aquí
     uses: ./.github/workflows/main.yml
     with:
+      service_name: "vpc"
       stack_name: "vpc-multilayers"
-      # Como decidimos estandarizar los nombres de archivos:
-      service_name: "vpc" 
       aws_region: "us-east-1"
