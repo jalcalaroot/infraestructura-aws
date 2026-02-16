@@ -1,16 +1,56 @@
-name: Pull Request workflow
+name: Deploy VPC (CloudFormation)
 
 on:
-  - pull_request
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # required for OIDC
+  contents: read    # required for checkout
+
+env:
+  AWS_REGION: us-east-1
+  TEMPLATE_FILE: vpc-multilayers-cloudformation.yml
+  STACK_NAME: vpc-multilayers
 
 jobs:
-  cloudformation-linter:
+  lint:
+    name: cfn-lint
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
-      - name: Linter install
+        uses: actions/checkout@v4
+
+      - name: Run cfn-lint
         uses: scottbrenner/cfn-lint-action@v2
         with:
-          command: cfn-lint -t ./vpc-multilayers-cloudformation.yml
+          command: cfn-lint -t ./${{ env.TEMPLATE_FILE }}
+
+  deploy:
+    name: Deploy stack
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::924612596837:role/github-actions-role
+          role-session-name: github-actions-cfn-deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Validate CloudFormation template (AWS)
+        run: |
+          aws cloudformation validate-template \
+            --template-body file://./${{ env.TEMPLATE_FILE }}
+
+      - name: Deploy CloudFormation stack
+        run: |
+          aws cloudformation deploy \
+            --template-file ./${{ env.TEMPLATE_FILE }} \
+            --stack-name ${{ env.STACK_NAME }} \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --no-fail-on-empty-changeset
