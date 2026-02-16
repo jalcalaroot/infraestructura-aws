@@ -1,0 +1,8 @@
+- ParameterKey: ClassA
+  ParameterValue: "10"
+
+- ParameterKey: ClassB
+  ParameterValue: "50"
+
+- ParameterKey: CustomerId
+  ParameterValue: "bank123"
