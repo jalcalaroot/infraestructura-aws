@@ -16,5 +16,5 @@ jobs:
     uses: ./.github/workflows/main.yml
     with:
       service_name: "vpc"
-      stack_name: "vpc-multilayers"
+      stack_name: "vpc"
       aws_region: "us-east-1"

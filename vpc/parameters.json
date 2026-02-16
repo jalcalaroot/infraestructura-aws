@@ -9,6 +9,6 @@
   },
   {
     "ParameterKey": "CustomerId",
-    "ParameterValue": "bank123"
+    "ParameterValue": "production"
   }
 ]
