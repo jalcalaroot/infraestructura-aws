@@ -1,0 +1,84 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Bastion Host con cifrado AWS Managed y Tags estandarizados'
+
+Parameters:
+  ProjectName:
+    Type: String
+  Environment:
+    Type: String
+  Owner:
+    Type: String
+  CostCenter:
+    Type: String
+  InstanceType:
+    Type: String
+    Default: t3.micro
+  DiskSize:
+    Type: Number
+    Default: 20
+  LatestAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64'
+
+Resources:
+  BastionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: [ec2.amazonaws.com]
+            Action: ['sts:AssumeRole']
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  BastionInstanceProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      Roles: [!Ref BastionRole]
+
+  BastionSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: !Sub "Acceso Bastion - ${ProjectName}"
+      VpcId: 
+        Fn::ImportValue: !Sub "${ProjectName}-${Environment}-VPC-ID"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-bastion-sg"
+
+  BastionInstance:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref LatestAmiId
+      IamInstanceProfile: !Ref BastionInstanceProfile
+      SubnetId: 
+        Fn::Select:
+          - 0
+          - Fn::Split: [",", { "Fn::ImportValue": !Sub "${ProjectName}-${Environment}-SUBNETS-PRIV" }]
+      SecurityGroupIds: [!Ref BastionSecurityGroup]
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: !Ref DiskSize
+            Encrypted: true
+            VolumeType: gp3
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-Bastion"
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter

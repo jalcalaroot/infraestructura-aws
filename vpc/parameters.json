@@ -1,0 +1,26 @@
+[
+  {
+    "ParameterKey": "ProjectName",
+    "ParameterValue": "GithubActionsInfra"
+  },
+  {
+    "ParameterKey": "Environment",
+    "ParameterValue": "dev"
+  },
+  {
+    "ParameterKey": "ClassA",
+    "ParameterValue": "10"
+  },
+  {
+    "ParameterKey": "ClassB",
+    "ParameterValue": "0"
+  },
+  {
+    "ParameterKey": "Owner",
+    "ParameterValue": "Cloud-Team"
+  },
+  {
+    "ParameterKey": "CostCenter",
+    "ParameterValue": "IT-Team-Master"
+  }
+]

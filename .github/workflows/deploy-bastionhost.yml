@@ -1,0 +1,31 @@
+name: Deploy Bastion Host
+
+on:
+  push:
+    branches: 
+      - "main"
+    paths:
+      - 'bastionhost/**' # Solo se dispara si tocas esta carpeta
+  workflow_dispatch: # Permite ejecución manual desde la pestaña Actions
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  bastion-deployment:
+    # Llamamos a tu motor reutilizable
+    uses: ./.github/workflows/main.yml
+    with:
+      # Nombre de la carpeta del microservicio
+      service_name: "bastionhost"
+      
+      # Nombre del Stack que aparecerá en la consola de AWS
+      stack_name: "bationhost"   
+      
+      # Región de despliegue
+      aws_region: "us-east-1"
+    
+    # Pasamos los secretos necesarios para el motor
+    secrets:
+      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}

@@ -1,0 +1,26 @@
+[
+  {
+    "ParameterKey": "ProjectName",
+    "ParameterValue": "GithubActionsInfra"
+  },
+  {
+    "ParameterKey": "Environment",
+    "ParameterValue": "dev"
+  },
+  {
+    "ParameterKey": "UserName",
+    "ParameterValue": "Admin123"
+  },
+  {
+    "ParameterKey": "BundleId",
+    "ParameterValue": "wsb-1rj4f2607"
+  },
+  {
+    "ParameterKey": "Owner",
+    "ParameterValue": "DevOpsTeam"
+  },
+  {
+    "ParameterKey": "CostCenter",
+    "ParameterValue": "IT-101"
+  }
+]

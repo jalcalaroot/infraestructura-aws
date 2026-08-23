@@ -1,0 +1,136 @@
+name: Main CloudFormation Engine
+
+on:
+  workflow_call:
+    inputs:
+      service_name:
+        required: true
+        type: string
+      stack_name:
+        required: true
+        type: string
+      aws_region:
+        required: false
+        type: string
+        default: "us-east-1"
+    secrets:
+      AWS_ROLE_ARN:
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  validate-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Necesario para que Gitleaks analice el historial
+
+      # --- CAPA 0: DETECCIÓN DE SECRETOS (GITLEAKS) ---
+      - name: Secret Scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # continue-on-error: false -> Si detecta una clave, el pipeline muere aquí.
+
+      # --- CONEXIÓN CON AWS (OIDC) ---
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ inputs.aws_region }}
+
+      # --- CAPA 1: VALIDACIÓN SINTÁCTICA ---
+      - name: Run cfn-lint
+        run: |
+          pip install cfn-lint
+          echo "## 📊 Reporte de Infraestructura: ${{ inputs.service_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "### ✅ Validación de Sintaxis" >> $GITHUB_STEP_SUMMARY
+          cfn-lint "./${{ inputs.service_name }}/template.yaml" --ignore-checks W2001 W3005 E3006 W1011
+
+    
+# --- CAPA 2: SEGURIDAD DE INFRAESTRUCTURA (RECALIBRADO) ---
+      - name: Run Checkov & Security Summary
+        if: always()
+        run: |
+          pip install checkov
+          echo "### 🛡️ Análisis de Seguridad Avanzado (Checkov)" >> $GITHUB_STEP_SUMMARY
+          
+          # 1. EJECUCIÓN: Forzamos el escaneo de todo nivel de severidad
+          checkov -f "./${{ inputs.service_name }}/template.yaml" \
+            --framework cloudformation \
+            --quiet --soft-fail \
+            --output cli > checkov_res.txt 2>&1 || true
+
+          # 2. EXTRACCIÓN LIMPIA (Sin duplicados)
+          # Usamos tail -1 para asegurar que solo agarramos el último resumen del archivo
+          PASSED=$(grep "Passed checks:" checkov_res.txt | tail -1 | awk -F'Passed checks: ' '{print $2}' | awk -F',' '{print $1}' | tr -d ' ' || echo "0")
+          FAILED=$(grep "Failed checks:" checkov_res.txt | tail -1 | awk -F'Failed checks: ' '{print $2}' | awk -F',' '{print $1}' | tr -d ' ' || echo "0")
+          
+          # Conteo de Severidades (usando -o para coincidencia exacta y wc para contar ocurrencias)
+          CRITICAL=$(grep -o "Severity: CRITICAL" checkov_res.txt | wc -l | tr -d ' ')
+          HIGH=$(grep -o "Severity: HIGH" checkov_res.txt | wc -l | tr -d ' ')
+          MEDIUM=$(grep -o "Severity: MEDIUM" checkov_res.txt | wc -l | tr -d ' ')
+
+          # 3. RENDERIZADO DE TABLA
+          echo "| Nivel | Cantidad |" >> $GITHUB_STEP_SUMMARY
+          echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔴 **Crítico** | ${CRITICAL:-0} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟠 **Alto** | ${HIGH:-0} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟡 **Medio** | ${MEDIUM:-0} |" >> $GITHUB_STEP_SUMMARY
+          echo "| ✅ **Pasados** | ${PASSED:-0} |" >> $GITHUB_STEP_SUMMARY
+
+          # 4. LISTADO DE VULNERABILIDADES
+          if [ "${FAILED:-0}" -gt "0" ]; then
+            echo -e "\n#### 🚨 Hallazgos detectados:" >> $GITHUB_STEP_SUMMARY
+            echo '```text' >> $GITHUB_STEP_SUMMARY
+            # Extrae el ID del check, la severidad y el recurso afectado
+            grep -E "Check:|Severity:|Resource:|File:" checkov_res.txt | head -n 20 >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+      # --- CAPA 3: ESTADO Y DRIFT ---
+      - name: Inspect stack and Drift
+        id: check_stack
+        run: |
+          STATUS=$(aws cloudformation describe-stacks --stack-name "${{ inputs.stack_name }}" --region ${{ inputs.aws_region }} --query "Stacks[0].StackStatus" --output text 2>/dev/null || echo "NOT_FOUND")
+          
+          if [[ "$STATUS" == "ROLLBACK_COMPLETE" ]]; then
+            aws cloudformation delete-stack --stack-name "${{ inputs.stack_name }}" --region ${{ inputs.aws_region }}
+            aws cloudformation wait stack-delete-complete --stack-name "${{ inputs.stack_name }}" --region ${{ inputs.aws_region }}
+            echo "type=CREATE" >> $GITHUB_OUTPUT
+          elif [[ "$STATUS" == "NOT_FOUND" ]]; then
+            echo "type=CREATE" >> $GITHUB_OUTPUT
+          else
+            echo "type=UPDATE" >> $GITHUB_OUTPUT
+            # Drift Check rápido
+            DETECTION_ID=$(aws cloudformation detect-stack-drift --stack-name "${{ inputs.stack_name }}" --region ${{ inputs.aws_region }} --query 'StackDriftDetectionId' --output text)
+            echo "drift_id=$DETECTION_ID" >> $GITHUB_OUTPUT
+          fi
+
+      # --- CAPA 4: DESPLIEGUE FINAL ---
+      - name: Deploy
+        run: |
+          echo "### 🚀 Resultado del Despliegue" >> $GITHUB_STEP_SUMMARY
+          CS_NAME="cs-${{ github.run_id }}"
+          aws cloudformation create-change-set \
+            --stack-name ${{ inputs.stack_name }} \
+            --change-set-name $CS_NAME \
+            --change-set-type ${{ steps.check_stack.outputs.type }} \
+            --template-body "file://./${{ inputs.service_name }}/template.yaml" \
+            --parameters "file://./${{ inputs.service_name }}/parameters.json" \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --region ${{ inputs.aws_region }}
+
+          aws cloudformation wait change-set-create-complete --stack-name ${{ inputs.stack_name }} --change-set-name $CS_NAME --region ${{ inputs.aws_region }} || true
+          
+          if aws cloudformation describe-change-set --stack-name ${{ inputs.stack_name }} --change-set-name $CS_NAME --region ${{ inputs.aws_region }} --query Status --output text | grep -q "FAILED"; then
+             echo "Estado: **SIN CAMBIOS**" >> $GITHUB_STEP_SUMMARY
+          else
+             aws cloudformation execute-change-set --stack-name ${{ inputs.stack_name }} --change-set-name $CS_NAME --region ${{ inputs.aws_region }}
+             echo "Estado: **DESPLIEGUE EXITOSO** ✅" >> $GITHUB_STEP_SUMMARY
+          fi

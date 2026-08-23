@@ -1,0 +1,58 @@
+# cfn-lint: disable=W1011
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Fase de Identidad - Simple AD con AWS Managed Key'
+
+Parameters:
+  ProjectName:
+    Type: String
+  Environment:
+    Type: String
+  Owner:
+    Type: String
+  CostCenter:
+    Type: String
+  ADAdminPassword:
+    Type: String
+    NoEcho: true
+
+Resources:
+  # 1. Almacén de Password cifrado con AWS Managed Key
+  ADPasswordSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub '${Environment}/workspaces/adpassword'
+      Description: "Admin password for Simple AD"
+      # Al no especificar KmsKeyId, AWS usa automáticamente la llave 'aws/secretsmanager'
+      SecretString: !Ref ADAdminPassword
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+
+  # 2. Simple AD
+  MySimpleAD:
+    Type: AWS::DirectoryService::SimpleAD
+    DependsOn: ADPasswordSecret
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-directory.local'
+      Password: !Ref ADAdminPassword
+      Size: Small
+      VpcSettings:
+        VpcId: 
+          Fn::ImportValue: !Sub "${ProjectName}-${Environment}-VPC-ID"
+        SubnetIds: 
+          - Fn::Select:
+              - 0
+              - Fn::Split: [",", { "Fn::ImportValue": !Sub "${ProjectName}-${Environment}-SUBNETS-PRIV" }]
+          - Fn::Select:
+              - 1
+              - Fn::Split: [",", { "Fn::ImportValue": !Sub "${ProjectName}-${Environment}-SUBNETS-PRIV" }]
+
+Outputs:
+  DirectoryId:
+    Value: !Ref MySimpleAD
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-DirectoryId'   

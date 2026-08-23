@@ -1,0 +1,31 @@
+name: Deploy WorkSpaces
+
+on:
+  push:
+    branches: 
+      - "main"
+    paths:
+      - 'workspaces/**' # Se dispara al detectar cambios en esta carpeta
+  workflow_dispatch: # Permite ejecución manual
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  workspaces-deployment:
+    # Llamamos a tu motor reutilizable (main.yml)
+    uses: ./.github/workflows/main.yml
+    with:
+      # Carpeta donde están el template.yaml y parameters.json
+      service_name: "workspaces"
+      
+      # Nombre del Stack en la consola de AWS
+      stack_name: "workspaces"   
+      
+      # Región de despliegue
+      aws_region: "us-east-1"
+    
+    # Pasamos solo el secreto de conexión (sin Infracost)
+    secrets:
+      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}

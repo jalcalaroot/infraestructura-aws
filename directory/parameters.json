@@ -1,0 +1,22 @@
+[
+  {
+    "ParameterKey": "ProjectName",
+    "ParameterValue": "GithubActionsInfra"
+  },
+  {
+    "ParameterKey": "Environment",
+    "ParameterValue": "dev"
+  },
+  {
+    "ParameterKey": "Owner",
+    "ParameterValue": "Cloud-Team"
+  },
+  {
+    "ParameterKey": "CostCenter",
+    "ParameterValue": "IT-Team-Master"
+  },
+  {
+    "ParameterKey": "ADAdminPassword",
+    "ParameterValue": "REPLACE_ME_BEFORE_DEPLOY"
+  }
+]

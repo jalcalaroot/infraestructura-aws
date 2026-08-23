@@ -1,0 +1,32 @@
+name: Deploy VPC
+
+on:
+  push:
+    branches: 
+      - "main"
+    paths:
+      - 'vpc/**'
+  workflow_dispatch:
+
+# Permisos necesarios para OIDC (No los quites, son los que permiten pedir el token a AWS)
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  vpc-deployment:
+    uses: ./.github/workflows/main.yml
+    with:
+      # Carpeta donde está tu template.yaml y parameters.json
+      service_name: "vpc"
+      
+      # Nombre del Stack en la consola de AWS
+      stack_name: "vpc"    
+      
+      # Región de despliegue
+      aws_region: "us-east-1"
+    
+    # Pasamos los secretos explícitamente para cumplir con el contrato del main.yml
+    secrets:
+      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+     
