@@ -1,0 +1,75 @@
+# cfn-lint: disable=W1011
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Fase de Escritorios - WorkSpaces usando AWS Managed Key'
+
+Parameters:
+  ProjectName:
+    Type: String
+  Environment:
+    Type: String
+  Owner:
+    Type: String
+  CostCenter:
+    Type: String
+  UserName:
+    Type: String
+    Default: 'Administrator'
+  BundleId:
+    Type: String
+    Default: 'wsb-1rj4f2607' 
+
+Resources:
+  # 1. Security Group para WorkSpaces
+  WorkSpaceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub 'SG para WorkSpaces - ${ProjectName}-${Environment}'
+      VpcId: 
+        Fn::ImportValue: !Sub "${ProjectName}-${Environment}-VPC-ID"
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-ws-sg'
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+
+# 2. El WorkSpace
+  MyWorkSpace:
+    Type: AWS::WorkSpaces::Workspace
+    Properties:
+      DirectoryId: 
+        Fn::ImportValue: !Sub "${ProjectName}-${Environment}-DirectoryId"
+      UserName: !Ref UserName
+      BundleId: !Ref BundleId
+      
+      # --- ESTA ES LA CORRECCIÓN ---
+      # Para usar la manage key de AWS, debemos especificar su alias
+      VolumeEncryptionKey: 'alias/aws/workspaces' 
+      
+      UserVolumeEncryptionEnabled: true
+      RootVolumeEncryptionEnabled: true
+      WorkspaceProperties:
+        RunningMode: AUTO_STOP
+        RunningModeAutoStopTimeoutInMinutes: 60
+        ComputeTypeName: STANDARD
+        RootVolumeSizeGib: 80
+        UserVolumeSizeGib: 10
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: CostCenter
+          Value: !Ref CostCenter
+
+Outputs:
+  WorkSpaceId:
+    Value: !Ref MyWorkSpace
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-WorkSpaceId'

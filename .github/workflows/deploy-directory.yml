@@ -1,0 +1,23 @@
+name: Deploy Directory Layer
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'directory/**'  # Nueva ruta detectada
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  call-engine-directory:
+    uses: ./.github/workflows/main.yml 
+    with:
+      service_name: "directory" # El motor buscará la carpeta 'directory'
+      stack_name: "directory"
+      aws_region: "us-east-1"
+    secrets:
+      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
