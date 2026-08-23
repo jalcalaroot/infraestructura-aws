@@ -1,4 +1,3 @@
-# cfn-lint: disable=W1011
 AWSTemplateFormatVersion: '2010-09-09'
 Description: 'Fase de Escritorios - WorkSpaces usando AWS Managed Key'
 

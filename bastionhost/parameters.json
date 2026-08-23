@@ -17,10 +17,10 @@
   },
   {
     "ParameterKey": "Owner",
-    "ParameterValue": "TuNombre"
+    "ParameterValue": "Cloud-Team"
   },
   {
     "ParameterKey": "CostCenter",
-    "ParameterValue": "IT-Ops"
+    "ParameterValue": "IT-Team-Master"
   }
 ]

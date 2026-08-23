@@ -1,0 +1,8 @@
+# AWS CLI / credentials
+.aws/
+*credentials*
+
+# OS / editor files
+.DS_Store
+*.swp
+*~
