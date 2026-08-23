@@ -21,7 +21,7 @@ jobs:
       service_name: "bastionhost"
       
       # Nombre del Stack que aparecerá en la consola de AWS
-      stack_name: "bationhost"   
+      stack_name: "bastionhost"
       
       # Región de despliegue
       aws_region: "us-east-1"
