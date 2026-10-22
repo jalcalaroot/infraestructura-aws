@@ -32,7 +32,7 @@ jobs:
 
       # --- CAPA 0: DETECCIÓN DE SECRETOS (GITLEAKS) ---
       - name: Secret Scan
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         # continue-on-error: false -> Si detecta una clave, el pipeline muere aquí.
